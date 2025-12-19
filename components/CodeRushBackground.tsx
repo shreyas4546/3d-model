@@ -13,6 +13,7 @@ const CodeRushBackground: React.FC<Props> = ({ config }) => {
   const matrixColumns = useRef<MatrixColumn[]>([]);
   const mousePosition = useRef({ x: 0, y: 0 });
   const rotation = useRef({ x: 0, y: 0 });
+  const smoothedMouse = useRef({ x: 0, y: 0 });
 
   const initParticles = useCallback((width: number, height: number) => {
     particles.current = Array.from({ length: config.particleCount }, (_, i) => {
@@ -74,6 +75,7 @@ const CodeRushBackground: React.FC<Props> = ({ config }) => {
 
     let animationFrameId: number;
     const focalLength = 600;
+    const nearPlane = -500;
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -84,16 +86,24 @@ const CodeRushBackground: React.FC<Props> = ({ config }) => {
 
     const draw = () => {
       if (config.animationStyle === 'flow') {
-        ctx.fillStyle = 'rgba(5, 5, 5, 0.1)';
+        ctx.fillStyle = 'rgba(5, 5, 5, 0.15)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
 
-      rotation.current.x += (mousePosition.current.y * 0.0005 - rotation.current.x) * 0.05;
-      rotation.current.y += (mousePosition.current.x * 0.0005 - rotation.current.y) * 0.05;
+      // Smooth camera interpolation (Inertia/Easing)
+      const targetRotationX = (mousePosition.current.y * 0.0006) + (config.tilt || 0);
+      const targetRotationY = (mousePosition.current.x * 0.0006);
+      rotation.current.x += (targetRotationX - rotation.current.x) * 0.08;
+      rotation.current.y += (targetRotationY - rotation.current.y) * 0.08;
+      
+      smoothedMouse.current.x += (mousePosition.current.x - smoothedMouse.current.x) * 0.1;
+      smoothedMouse.current.y += (mousePosition.current.y - smoothedMouse.current.y) * 0.1;
 
+      // Matrix Rain Effect
       if (config.matrixRain) {
+        ctx.shadowBlur = 0;
         ctx.font = '14px "Fira Code"';
         ctx.textAlign = 'center';
         matrixColumns.current.forEach((col) => {
@@ -102,7 +112,7 @@ const CodeRushBackground: React.FC<Props> = ({ config }) => {
             ctx.fillStyle = `${config.color}${Math.floor(alpha * 255).toString(16).padStart(2, '0')}`;
             ctx.fillText(char, col.x, col.y - (i * 20));
           });
-          col.y += col.speed;
+          col.y += col.speed * (config.speed * 0.8);
           if (col.y > canvas.height + 300) { col.y = -100; col.speed = Math.random() * 3 + 2; }
           if (Math.random() > 0.95) { col.chars.unshift(MATRIX_CHARS[Math.floor(Math.random() * MATRIX_CHARS.length)]); col.chars.pop(); }
         });
@@ -111,100 +121,14 @@ const CodeRushBackground: React.FC<Props> = ({ config }) => {
       const projectedParticles: {sx: number, sy: number, size: number, scale: number, alpha: number, p: Particle}[] = [];
 
       particles.current.forEach((p) => {
+        // Physics update
         if (config.animationStyle === 'stars') {
-            p.z += p.vz * 2;
-            if (p.z < 0) p.z = 1000;
-        } else if (config.animationStyle === 'plexus' || config.animationStyle === 'boids') {
-            p.x += p.vx; p.y += p.vy; p.z += p.vz;
-            const bounds = 500;
-            if (p.x < -bounds) p.x = bounds; if (p.x > bounds) p.x = -bounds;
-            if (p.y < -bounds) p.y = bounds; if (p.y > bounds) p.y = -bounds;
-            if (p.z < -bounds) p.z = bounds; if (p.z > bounds) p.z = -bounds;
-        }
-
-        let rx = p.x, ry = p.y, rz = p.z;
-        const time = Date.now() * 0.0005;
-        const autoY = time * (config.speed * 0.2);
-        
-        const cosY = Math.cos(autoY + rotation.current.y);
-        const sinY = Math.sin(autoY + rotation.current.y);
-        const tx = rx * cosY - rz * sinY;
-        const tz = rx * sinY + rz * cosY;
-        rx = tx; rz = tz;
-
-        const cosX = Math.cos(rotation.current.x);
-        const sinX = Math.sin(rotation.current.x);
-        const ty = ry * cosX - rz * sinX;
-        const ttz = ry * sinX + rz * cosX;
-        ry = ty; rz = ttz;
-
-        // Safety clamp on focal division to prevent Infinity/NaN
-        const scale = focalLength / Math.max(1, focalLength + rz);
-        const sx = rx * scale + canvas.width / 2;
-        const sy = ry * scale + canvas.height / 2;
-
-        if (sx > -100 && sx < canvas.width + 100 && sy > -100 && sy < canvas.height + 100) {
-            const alpha = Math.min(1, Math.max(0, (1 - rz / 1000)));
-            projectedParticles.push({ sx, sy, size: p.size * scale, scale, alpha, p });
-        }
-      });
-
-      projectedParticles.forEach(({ sx, sy, size, scale, alpha }, i) => {
-        ctx.beginPath();
-        ctx.arc(sx, sy, Math.max(0.1, size), 0, Math.PI * 2);
-        const hexAlpha = Math.floor(alpha * 255).toString(16).padStart(2, '0');
-        ctx.fillStyle = `${config.color}${hexAlpha}`;
-        ctx.fill();
-
-        if (['plexus', 'dna', 'lattice'].includes(config.animationStyle)) {
-            for (let j = i + 1; j < Math.min(i + 15, projectedParticles.length); j++) {
-                const p2 = projectedParticles[j];
-                const dx = sx - p2.sx;
-                const dy = sy - p2.sy;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                const limit = config.animationStyle === 'plexus' ? config.connectionDistance : 80;
-
-                if (dist < limit) {
-                    ctx.beginPath();
-                    const lineAlpha = (1 - dist / limit) * alpha * p2.alpha * 0.4;
-                    const hexLineAlpha = Math.floor(lineAlpha * 255).toString(16).padStart(2, '0');
-                    ctx.strokeStyle = `${config.color}${hexLineAlpha}`;
-                    ctx.lineWidth = Math.max(0.1, config.lineWidth * scale);
-                    ctx.moveTo(sx, sy);
-                    ctx.lineTo(p2.sx, p2.sy);
-                    ctx.stroke();
-                }
-            }
-        }
-      });
-
-      animationFrameId = requestAnimationFrame(draw);
-    };
-
-    window.addEventListener('resize', resize);
-    resize();
-    draw();
-
-    return () => {
-      window.removeEventListener('resize', resize);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [config, initParticles, initMatrix]);
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    mousePosition.current = { 
-        x: e.clientX - window.innerWidth / 2, 
-        y: e.clientY - window.innerHeight / 2 
-    };
-  };
-
-  return (
-    <canvas
-      ref={canvasRef}
-      onMouseMove={handleMouseMove}
-      className="fixed inset-0 w-full h-full pointer-events-auto z-0"
-    />
-  );
-};
-
-export default CodeRushBackground;
+            p.z += p.vz * 2.5;
+            if (p.z < nearPlane) p.z = 1000;
+        } else {
+            // Mouse Interaction Logic (Repulsion)
+            // We interact with particles in a simulated 3D space near their position
+            const dx = p.x - mousePosition.current.x * 0.5;
+            const dy = p.y - mousePosition.current.y * 0.5;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const interactionRadius = 20

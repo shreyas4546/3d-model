@@ -10,7 +10,8 @@ export const DEFAULT_CONFIG: AnimationConfig = {
   lineWidth: 0.8,
   matrixRain: true,
   themeName: 'Cyberpunk Cyan',
-  animationStyle: 'plexus'
+  animationStyle: 'plexus',
+  tilt: 0
 };
 
 export const THEMES: Record<string, Partial<AnimationConfig>> = {

@@ -11,6 +11,7 @@ export interface AnimationConfig {
   matrixRain: boolean;
   themeName: string;
   animationStyle: AnimationStyle;
+  tilt: number;
 }
 
 export interface Particle {
