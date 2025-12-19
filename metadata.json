@@ -1,0 +1,5 @@
+{
+  "name": "CodeFlow Studio",
+  "description": "An interactive playground to explore and generate high-performance tech-inspired background animations like the ones seen in Code Rush, powered by Canvas and Gemini AI.",
+  "requestFramePermissions": []
+}
